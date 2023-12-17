@@ -1,10 +1,11 @@
 import 'reflect-metadata';
-import {container, enphaseLocalAPI, httpService} from '../../../lib/container'
+import * as crypto from 'node:crypto'
+import {container, enphaseLocalAPI, httpClient} from '../../../lib/container'
 
-const mockObject = { fetch: jest.fn(), fetchUnsafe: jest.fn() }
+const mockObject = { get: jest.fn(), post: jest.fn() }
 
-container.register<httpService>("httpService", {
-    useValue: mockObject as httpService,
+container.register<httpClient>("httpService", {
+    useValue: mockObject as never as httpClient,
 });
 
 describe('enphaseLocalAPI', () => {
@@ -12,17 +13,21 @@ describe('enphaseLocalAPI', () => {
         const service = container.resolve("enphaseLocalAPI");
         expect(service).toBeDefined();
     });
-    it('should respond true to a ping request', async () => {
-        const service: enphaseLocalAPI = container.resolve("enphaseLocalAPI");
-        mockObject.fetchUnsafe.mockResolvedValueOnce({status: 200});
-        const response = await service.ping();
-        expect(response).toEqual(true);
+    describe('generateCodeVerifier', () => {
+        it('should generate a 32 byte code verifier', async () => {
+            const service: enphaseLocalAPI = container.resolve("enphaseLocalAPI");
+            const response = service['generateCodeVerifier']();
+            expect(response.length).toEqual(43);
+        });
     });
-    it('should respond false to a ping request when not up', async () => {
-        const service: enphaseLocalAPI = container.resolve("enphaseLocalAPI");
-        //mock the fetch method
-        mockObject.fetchUnsafe.mockRejectedValueOnce(new Error("error"));
-        const response = await service.ping();
-        expect(response).toEqual(false);
+    describe('generateCodeChallenge', () => {
+        it('should generate something', async () => {
+            const service: enphaseLocalAPI = container.resolve("enphaseLocalAPI");
+            const verifierCode = service['generateCodeVerifier']();
+            const response = service['generateCodeChallenge'](verifierCode);
+            const verifierCodeHash = crypto.createHash('sha256').update(verifierCode).digest();
+            const verifierCodeHashBase64 = Buffer.from(verifierCodeHash).toString('base64url');
+            expect(response).toEqual(verifierCodeHashBase64);
+        });
     });
 });

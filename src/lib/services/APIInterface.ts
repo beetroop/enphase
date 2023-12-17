@@ -1,5 +1,4 @@
-import {httpService} from "../container";
+import {httpClient} from "../container";
 export interface APIInterface {
-    baseUrl: string;
-    httpService: httpService;
+    httpClient: httpClient;
 }

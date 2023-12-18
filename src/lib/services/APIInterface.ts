@@ -1,4 +1,5 @@
-import {httpClient} from "../container";
+import { type HttpClient } from '../container'
+
 export interface APIInterface {
-    httpClient: httpClient;
+  httpClient: HttpClient
 }

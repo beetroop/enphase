@@ -33,6 +33,10 @@ export class HttpClient implements IHttpClient {
   async get<AxiosResponse>(endpoint: string): Promise<AxiosResponse> {
     return await this.axiosInstance.get(endpoint)
   }
+
+  async getStream<AxiosResponse>(endpoint: string): Promise<AxiosResponse> {
+    return await this.axiosInstance.get(endpoint, { responseType: 'stream' })
+  }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-extraneous-class
@@ -50,5 +54,9 @@ export class httpClientFactory {
       httpsAgent: new https.Agent({ rejectUnauthorized })
     }
     return new HttpClient(configOptions)
+  }
+
+  constructor () {
+    throw new Error('Cannot instantiate httpClientFactory')
   }
 }

@@ -1,5 +1,5 @@
 import { type APIInterface } from './APIInterface'
-import { type HttpClient, httpClientFactory } from '../container'
+import { container, type HttpClient, httpClientFactory, type storeService } from '../container'
 import { type AxiosResponse } from 'axios'
 import { type Measurements, type Reading } from './enphaseDataTypes'
 import * as crypto from 'crypto'
@@ -9,27 +9,52 @@ export class enphaseLocalAPI implements APIInterface {
   authURL: string = `https://${process.env.ENPHASE_AUTH_URN}`
   httpClient: HttpClient
   authHttpClient: HttpClient
+  store: storeService
+  outputMode: 'verbose' | 'silent' = 'silent'
   private _productionJSONData: Measurements | undefined = undefined
   constructor () {
     this.httpClient = httpClientFactory.create(new URL(this.baseURL))
     this.authHttpClient = httpClientFactory.create(new URL(this.authURL))
+    this.store = container.resolve('storeService')
+  }
+
+  private log (message: string): void {
+    if (this.outputMode === 'verbose') console.log(message)
   }
 
   public async authenticate (): Promise<void> {
-    const codeVerifier = this.generateCodeVerifier()
-    console.log('code verifier generated...')
-    const codeChallenge = this.generateCodeChallenge(codeVerifier)
-    console.log('code challenge generated...')
-    const code = await this.getCode(codeChallenge)
-    console.log('code retrieved...')
-    const jwt = await this.getJWT(code, codeVerifier)
-    console.log('jwt retrieved...')
+    let jwt = this.retrieveJWT()
+    if (jwt === false) {
+      const codeVerifier = this.generateCodeVerifier()
+      this.log('code verifier generated...')
+      const codeChallenge = this.generateCodeChallenge(codeVerifier)
+      this.log('code challenge generated...')
+      const code = await this.getCode(codeChallenge)
+      this.log('code retrieved...')
+      jwt = await this.getJWT(code, codeVerifier)
+      this.log('jwt retrieved...')
+      await this.storeJWT(jwt)
+    }
     this.httpClient.addHeader('Authorization', `Bearer ${jwt}`)
-    console.log('jwt added to client...')
+    this.log('jwt added to client...')
+  }
+
+  private async storeJWT (jwt: string): Promise<void> {
+    await this.store.put('jwt', jwt)
+    await this.store.put('jwtExpiry', Date.now() + 3600000)
+  }
+
+  private retrieveJWT (): string | false {
+    const jwtExpiry = this.store.get<number>('jwtExpiry')
+    const jwt = this.store.get<string>('jwt')
+    if (jwt === undefined || jwtExpiry === undefined || jwtExpiry < Date.now()) {
+      return false
+    }
+    return jwt
   }
 
   async getProductionJSONData (): Promise<Measurements> {
-    if (this._productionJSONData != null && this._productionJSONData.production[0].readingTime > Date.now() - 5000) return this._productionJSONData
+    if (this._productionJSONData != null && this._productionJSONData.production[0].readingTime > Date.now() - (parseInt(process.env.INTERVAL ?? '5000'))) return this._productionJSONData
     this._productionJSONData = await this.fetchData<Measurements>('production')
     return this._productionJSONData
   }

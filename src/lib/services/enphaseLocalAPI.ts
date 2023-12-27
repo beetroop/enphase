@@ -10,8 +10,10 @@ export class enphaseLocalAPI implements APIInterface {
   httpClient: HttpClient
   authHttpClient: HttpClient
   store: storeService
-  outputMode: 'verbose' | 'silent' = 'silent'
+  outputMode: 'verbose' | 'silent' = process.env.MODE === 'verbose' ? 'verbose' : 'silent'
   private _productionJSONData: Measurements | undefined = undefined
+  private readonly _history: Measurements[] = []
+
   constructor () {
     this.httpClient = httpClientFactory.create(new URL(this.baseURL))
     this.authHttpClient = httpClientFactory.create(new URL(this.authURL))
@@ -41,7 +43,9 @@ export class enphaseLocalAPI implements APIInterface {
 
   private async storeJWT (jwt: string): Promise<void> {
     await this.store.put('jwt', jwt)
+    this.log('jwt stored...')
     await this.store.put('jwtExpiry', Date.now() + 3600000)
+    this.log(`jwt expiry stored... ${Date.now() + 3600000}`)
   }
 
   private retrieveJWT (): string | false {
@@ -53,24 +57,39 @@ export class enphaseLocalAPI implements APIInterface {
     return jwt
   }
 
-  async getProductionJSONData (): Promise<Measurements> {
-    if (this._productionJSONData != null && this._productionJSONData.production[0].readingTime > Date.now() - (parseInt(process.env.INTERVAL ?? '5000'))) return this._productionJSONData
+  private isTimeToFetchFreshData (): boolean {
+    return !(this._productionJSONData != null && this._productionJSONData.production[0].readingTime > Date.now() - (parseInt(process.env.INTERVAL ?? '5000')))
+  }
+
+  async getAndStoreProductionJSONData (): Promise<Measurements> {
+    if (!this.isTimeToFetchFreshData() && this._productionJSONData != null) return this._productionJSONData // strictly speaking this type check should not be necessary
     this._productionJSONData = await this.fetchData<Measurements>('production')
+    this.storeHistory(this._productionJSONData)
     return this._productionJSONData
   }
 
+  async getProductionJSONDataHistory (): Promise<Measurements[]> {
+    await this.getAndStoreProductionJSONData()
+    return this._history
+  }
+
+  private storeHistory (data: Measurements): void {
+    this._history.push(data)
+    if (this._history.length > parseInt(process.env.MAX_HISTORY_LENGTH ?? '100')) this._history.shift()
+  }
+
   async netConsumption (): Promise<Reading> {
-    const data: Measurements = await this.getProductionJSONData()
+    const data: Measurements = await this.getAndStoreProductionJSONData()
     return data.consumption.filter(reading => reading.measurementType === 'net-consumption')[0]
   }
 
   async totalConsumption (): Promise<Reading> {
-    const data: Measurements = await this.getProductionJSONData()
+    const data: Measurements = await this.getAndStoreProductionJSONData()
     return data.consumption.filter(reading => reading.measurementType === 'total-consumption')[0]
   }
 
   async production (): Promise<Reading> {
-    const data: Measurements = await this.getProductionJSONData()
+    const data: Measurements = await this.getAndStoreProductionJSONData()
     return data.production.filter(reading => reading.measurementType === 'production')[0]
   }
 
